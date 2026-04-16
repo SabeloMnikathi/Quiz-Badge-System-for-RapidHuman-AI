@@ -1,11 +1,11 @@
 /**
  * FILE: attemptsService.ts
- * PURPOSE: Handles creating attempts and calling the grade-attempt Edge Function.
- * WHY: Isolates Supabase + edge function calls from the quiz UI logic.
+ * PURPOSE: Handles creating and updating attempts, and grading locally using fetched questions.
+ * WHY: Isolates Supabase calls from the quiz UI logic. Grading is done client-side for reliability.
  */
 
 import { supabase } from "./supabase";
-import type { Answer, Attempt, GradeResult } from "../types/quiz.types";
+import type { Answer, Attempt, GradeResult, Question } from "../types/quiz.types";
 
 export async function createAttempt(userId: string): Promise<Attempt> {
   const { data, error } = await supabase
@@ -30,18 +30,31 @@ export async function updateAttemptAnswers(
   if (error) throw new Error(error.message);
 }
 
-export async function gradeAttempt(attemptId: string): Promise<GradeResult> {
-  const { data, error } = await supabase.functions.invoke("grade-attempt", {
-    body: { attemptId },
-  });
+export async function gradeAttempt(
+  attemptId: string,
+  answers: Answer[],
+  questions: Question[]
+): Promise<GradeResult> {
+  const total = questions.length;
+  let correctCount = 0;
 
-  if (error) {
-    const msg = error.message || error.toString() || "Edge Function call failed";
-    throw new Error(msg);
+  for (const answer of answers) {
+    const question = questions.find((q) => q.id === answer.question_id);
+    if (question && answer.selected_index === question.correct_index) {
+      correctCount++;
+    }
   }
-  if (!data) throw new Error("No response from grading function");
-  if (data.error) throw new Error(data.error);
-  return data as GradeResult;
+
+  const passed = total > 0 && correctCount === total;
+
+  const { error } = await supabase
+    .from("attempts")
+    .update({ passed })
+    .eq("id", attemptId);
+
+  if (error) throw new Error(error.message);
+
+  return { passed, correct_count: correctCount, total };
 }
 
 export async function fetchAttempt(attemptId: string): Promise<Attempt> {

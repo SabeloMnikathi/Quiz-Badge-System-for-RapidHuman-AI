@@ -1,12 +1,11 @@
 /**
  * FILE: QuizPage.tsx
- * PURPOSE: Orchestrates the question flow — navigation, timer, answer recording, and submission.
+ * PURPOSE: Orchestrates the question flow — navigation, timer, answer recording, and grading.
  * WHY: Centralizes quiz orchestration so individual components stay focused on display.
  */
 
 import { useState, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useLocation } from "wouter";
 import { useQuiz } from "../context/QuizContext";
 import { useTimer } from "../hooks/useTimer";
 import { useQuizSession } from "../hooks/useQuizSession";
@@ -14,6 +13,7 @@ import { QuestionCard } from "../components/QuestionCard";
 import { Timer } from "../components/Timer";
 import { ProgressBar } from "../components/ProgressBar";
 import { updateAttemptAnswers, gradeAttempt } from "../services/attemptsService";
+import { createBadge } from "../services/badgesService";
 import type { Answer } from "../types/quiz.types";
 
 const QUESTION_TIME = 60;
@@ -26,8 +26,7 @@ const slideVariants = {
 
 export function QuizPage() {
   const { state, dispatch } = useQuiz();
-  const { questions, currentIndex, answers, attemptId } = state;
-  const [, setLocation] = useLocation();
+  const { questions, currentIndex, answers, attemptId, userId } = state;
   const { saveSession } = useQuizSession();
 
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -57,14 +56,16 @@ export function QuizPage() {
         setTimerFrozen(true);
         setSubmitting(true);
         setSubmitError(null);
-        dispatch({ type: "RECORD_ANSWER", payload: answer });
 
         try {
           await updateAttemptAnswers(attemptId!, updatedAnswers);
-          const result = await gradeAttempt(attemptId!);
+          const result = await gradeAttempt(attemptId!, updatedAnswers, questions);
+          if (result.passed && userId) {
+            await createBadge(userId, attemptId!);
+          }
+          dispatch({ type: "RECORD_ANSWER", payload: answer });
           dispatch({ type: "COMPLETE_QUIZ", payload: result });
-          if (state.userId) saveSession(attemptId!, state.userId);
-          setLocation("/result");
+          if (userId) saveSession(attemptId!, userId);
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Submission failed. Please try again.";
           setSubmitError(msg);
@@ -79,7 +80,7 @@ export function QuizPage() {
         dispatch({ type: "NEXT_QUESTION" });
       }
     },
-    [currentQuestion, selectedIndex, answers, isLast, attemptId, dispatch, setLocation, submitting, timerFrozen, state.userId, saveSession]
+    [currentQuestion, selectedIndex, answers, isLast, attemptId, questions, userId, dispatch, submitting, timerFrozen, saveSession]
   );
 
   const handleTimeout = useCallback(() => {
@@ -138,11 +139,7 @@ export function QuizPage() {
             disabled={selectedIndex === null || submitting}
             className="w-full py-4 bg-indigo-600 text-white font-semibold rounded-xl text-base hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {submitting
-              ? "Grading..."
-              : isLast
-              ? "Submit Quiz"
-              : "Next Question →"}
+            {submitting ? "Grading..." : isLast ? "Submit Quiz" : "Next Question →"}
           </button>
         </div>
       </div>
