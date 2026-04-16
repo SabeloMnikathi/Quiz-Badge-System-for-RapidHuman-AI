@@ -426,12 +426,6 @@ interface QuizState {
 
 ## Security Model
 
-The issue is a self-referencing edge — `Grader` points back to `ServiceKey` which is its own parent subgraph, and Mermaid can't render that. Let me fix the diagram:Here's the fixed diagram. The problem was the original Mermaid had `Grader -->|UPDATE| ServiceKey` — an arrow pointing *back into* the parent subgraph, which Mermaid rejects as invalid.
-
-The corrected logic: the grader reads from and writes to **Supabase DB** (shown as the loop on the right), not back to the service key node. The service key is what *enables* the grader to act, not something the grader sends data back to.
-
-To update the README, replace the broken Mermaid block in the Security Model section with this corrected version:
-
 ```mermaid
 graph TB
     subgraph Browser["Browser (anon key only)"]
