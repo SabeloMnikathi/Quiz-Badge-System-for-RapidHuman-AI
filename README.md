@@ -728,4 +728,4 @@ The admin dashboard lists all questions. Each row has **Edit** and **Delete** ac
 
 ## License
 
-MIT — built for assessment purposes by Sabelo Mnikathi.
+RSA — built for assessment purposes by Sabelo Mnikathi.
