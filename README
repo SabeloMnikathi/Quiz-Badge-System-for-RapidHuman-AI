@@ -1,0 +1,736 @@
+# Quiz Badge System
+
+> A Typeform-style quiz platform where users answer timed questions to unlock a digital badge — built on a modern serverless stack with a clean monorepo architecture.
+
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-007ACC?style=flat&logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat&logo=supabase&logoColor=white)
+![Framer Motion](https://img.shields.io/badge/Framer_Motion-black?style=flat&logo=framer&logoColor=white)
+![pnpm](https://img.shields.io/badge/pnpm-workspace-F69220?style=flat&logo=pnpm&logoColor=white)
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Live Demo](#live-demo)
+- [Architecture](#architecture)
+- [System Design](#system-design)
+- [Database Schema](#database-schema)
+- [User Flows](#user-flows)
+- [State Machine](#state-machine)
+- [Security Model](#security-model)
+- [Monorepo Structure](#monorepo-structure)
+- [Key Design Decisions](#key-design-decisions)
+- [Local Development](#local-development)
+- [Deployment](#deployment)
+- [Admin Panel](#admin-panel)
+
+---
+
+## Overview
+
+The Quiz Badge System is a **full-stack, serverless quiz application** that delivers a polished Typeform-style experience — one question at a time, animated transitions, per-question timers, and a badge awarded on completion. It is built as an artifact inside a pnpm monorepo, backed by Supabase for persistence, auth, file storage, and server-side grading logic.
+
+### Core Features
+
+| Feature | Implementation |
+|---|---|
+| Typeform-style transitions | Framer Motion `AnimatePresence` slide animations |
+| Per-question countdown | Custom `useTimer` hook, enforced server-side |
+| No back navigation | React Router `useBlocker` + `history.pushState` override |
+| One attempt per session | `sessionStorage` guard on quiz load |
+| Anonymous user identity | Supabase anonymous sign-in (zero UI) |
+| Server-side grading | Supabase Edge Function (`grade-attempt`) |
+| Badge award | Supabase Storage public bucket + Firestore write |
+| Admin panel | Password-gated route, full CRUD on questions |
+| Confetti on success | `canvas-confetti` triggered on badge unlock |
+
+---
+
+## Live Demo
+
+> Access the quiz at the root route `/` and the admin panel at `/admin`.
+
+**Demo credentials**
+- Admin password: set via `VITE_ADMIN_PASSWORD` environment variable
+
+---
+
+## Architecture
+
+### High-Level System Diagram
+
+```mermaid
+graph TB
+    subgraph Client["Browser (React + TypeScript + Vite)"]
+        direction LR
+        UI_Quiz["Quiz Flow UI<br/>Framer Motion transitions"]
+        UI_Admin["Admin Panel<br/>Password-gated CRUD"]
+        UI_Badge["Badge Screen<br/>Confetti + badge graphic"]
+    end
+
+    subgraph Supabase["Supabase (Serverless Backend)"]
+        direction TB
+        Auth["Supabase Auth<br/>Anonymous sign-in"]
+        DB[("PostgreSQL<br/>questions · attempts · badges")]
+        Storage["Supabase Storage<br/>badges bucket (public)"]
+        Edge["Edge Function<br/>grade-attempt (Deno)"]
+    end
+
+    UI_Quiz -->|fetch questions| DB
+    UI_Quiz -->|sign in anonymously| Auth
+    UI_Quiz -->|save attempt| DB
+    UI_Quiz -->|POST attemptId| Edge
+    Edge -->|read questions + attempt| DB
+    Edge -->|write badge record| DB
+    Edge -->|returns passed / score| UI_Quiz
+    UI_Badge -->|fetch badge image URL| Storage
+    UI_Admin -->|CRUD questions| DB
+```
+
+### Component Architecture
+
+```mermaid
+graph TB
+    App["App.tsx<br/>Router + Auth bootstrap"]
+
+    App --> StartPage["StartPage<br/>Quiz intro + Begin"]
+    App --> QuizPage["QuizPage<br/>Question orchestrator"]
+    App --> ResultPage["ResultPage<br/>Route to pass / fail"]
+    App --> AdminPage["AdminPage<br/>Password gate + CRUD"]
+    App --> NotFound["NotFoundPage"]
+
+    QuizPage --> QuestionCard["QuestionCard<br/>Radio options + animation"]
+    QuizPage --> Timer["Timer<br/>Per-question countdown"]
+    QuizPage --> ProgressBar["ProgressBar<br/>Step indicator"]
+    QuizPage --> QuizContext["QuizContext<br/>useReducer state"]
+
+    ResultPage --> BadgeScreen["BadgeScreen<br/>Confetti + badge"]
+    AdminPage --> AdminQuestionForm["AdminQuestionForm<br/>Add / edit question"]
+
+    subgraph Services["services/ (all Supabase calls)"]
+        supabase["supabase.ts<br/>client init"]
+        questionsService["questionsService.ts"]
+        attemptsService["attemptsService.ts"]
+        badgesService["badgesService.ts"]
+    end
+
+    subgraph Hooks["hooks/"]
+        useQuestions["useQuestions.ts"]
+        useTimer["useTimer.ts"]
+        useQuizSession["useQuizSession.ts"]
+    end
+
+    QuizPage --> useQuestions
+    QuizPage --> useTimer
+    QuizPage --> useQuizSession
+    useQuestions --> questionsService
+    attemptsService --> supabase
+    questionsService --> supabase
+    badgesService --> supabase
+```
+
+---
+
+## System Design
+
+### Three-Layer Architecture
+
+```mermaid
+graph LR
+    subgraph Presentation["Presentation Layer"]
+        P1["Pages & Components<br/>React + Tailwind"]
+        P2["Framer Motion<br/>Animated transitions"]
+        P3["Canvas Confetti<br/>Badge celebration"]
+    end
+
+    subgraph Application["Application Layer"]
+        A1["QuizContext<br/>useReducer state"]
+        A2["Custom Hooks<br/>useQuestions · useTimer · useQuizSession"]
+        A3["React Router v6<br/>Protected routes · useBlocker"]
+    end
+
+    subgraph Data["Data Layer"]
+        D1["Services<br/>All Supabase calls isolated here"]
+        D2["Types<br/>quiz.types.ts · zero any"]
+        D3["Supabase Client<br/>anon key (browser safe)"]
+    end
+
+    subgraph Backend["Serverless Backend"]
+        B1["Supabase Auth<br/>Anonymous sessions"]
+        B2["PostgreSQL + RLS<br/>Row-level security"]
+        B3["Edge Function (Deno)<br/>grade-attempt · service-role key"]
+        B4["Storage<br/>badges bucket · public CDN"]
+    end
+
+    Presentation <--> Application
+    Application <--> Data
+    Data <--> Backend
+```
+
+### Sequence: Full Quiz Run
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant React as React App
+    participant Supabase as Supabase Auth + DB
+    participant Edge as Edge Function
+
+    User->>React: Visit /quiz
+    React->>Supabase: signInAnonymously()
+    Supabase-->>React: { user: { id: uuid } }
+
+    React->>Supabase: SELECT * FROM questions ORDER BY order ASC
+    Supabase-->>React: questions[]
+
+    loop Per question
+        React->>User: Show question (animated slide-in)
+        Note over React: Timer starts (60s default)
+        User->>React: Select answer + click Next
+        React->>React: Record { questionId, selectedIndex, timeTaken }
+        Note over React: Back navigation BLOCKED
+    end
+
+    React->>Supabase: INSERT INTO attempts (user_id, answers, started_at, completed_at)
+    Supabase-->>React: { id: attemptId }
+
+    React->>Edge: POST /grade-attempt { attemptId }
+    Edge->>Supabase: Fetch attempt + questions (service-role key)
+    Edge->>Edge: Compare selectedIndex vs correct_index for each answer
+
+    alt All answers correct
+        Edge->>Supabase: UPDATE attempts SET passed=true
+        Edge->>Supabase: INSERT INTO badges (user_id, attempt_id, image_url)
+        Edge-->>React: { passed: true, correct_count: N, total: N }
+        React->>User: BadgeScreen + confetti 🎉
+    else One or more wrong
+        Edge-->>React: { passed: false, correct_count: N, total: N }
+        React->>User: "Not quite — try again" screen
+    end
+```
+
+---
+
+## Database Schema
+
+### Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    AUTH_USERS {
+        uuid id PK
+        timestamptz created_at
+    }
+
+    QUESTIONS {
+        uuid id PK
+        text text
+        text[] options
+        int2 correct_index
+        int4 order
+        timestamptz created_at
+    }
+
+    ATTEMPTS {
+        uuid id PK
+        uuid user_id FK
+        jsonb answers
+        timestamptz started_at
+        timestamptz completed_at
+        boolean passed
+        text badge_url
+    }
+
+    BADGES {
+        uuid id PK
+        uuid user_id FK
+        uuid attempt_id FK
+        timestamptz awarded_at
+        text image_url
+    }
+
+    AUTH_USERS ||--o{ ATTEMPTS : "makes"
+    AUTH_USERS ||--o{ BADGES : "earns"
+    ATTEMPTS ||--o| BADGES : "produces"
+```
+
+### Row Level Security Policies
+
+| Table | Policy | Rule |
+|---|---|---|
+| `questions` | Public read | `SELECT` allowed for all (quiz users need questions) |
+| `attempts` | Insert own | `INSERT` only when `auth.uid() = user_id` |
+| `attempts` | Read own | `SELECT` only when `auth.uid() = user_id` |
+| `attempts` | Update own | `UPDATE` only when `auth.uid() = user_id` |
+| `badges` | Read own | `SELECT` only when `auth.uid() = user_id` |
+
+> **Note:** The Edge Function uses the `SUPABASE_SERVICE_ROLE_KEY` to bypass RLS for server-side grading. This key is **never** exposed to the browser.
+
+### SQL Setup
+
+```sql
+-- Run in Supabase → SQL Editor
+
+create extension if not exists "uuid-ossp";
+
+create table questions (
+  id uuid primary key default uuid_generate_v4(),
+  text text not null,
+  options text[] not null,
+  correct_index int2 not null,
+  "order" int4 not null default 0,
+  created_at timestamptz default now()
+);
+
+create table attempts (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references auth.users(id),
+  answers jsonb not null default '[]',
+  started_at timestamptz default now(),
+  completed_at timestamptz,
+  passed boolean,
+  badge_url text
+);
+
+create table badges (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references auth.users(id),
+  attempt_id uuid references attempts(id),
+  awarded_at timestamptz default now(),
+  image_url text
+);
+
+alter table questions enable row level security;
+alter table attempts enable row level security;
+alter table badges enable row level security;
+
+create policy "Public can read questions"
+  on questions for select using (true);
+
+create policy "Users can insert own attempts"
+  on attempts for insert with check (auth.uid() = user_id);
+
+create policy "Users can read own attempts"
+  on attempts for select using (auth.uid() = user_id);
+
+create policy "Users can update own attempts"
+  on attempts for update using (auth.uid() = user_id);
+
+create policy "Users can read own badges"
+  on badges for select using (auth.uid() = user_id);
+```
+
+---
+
+## User Flows
+
+### Flow 1: Happy Path — Badge Unlocked
+
+```mermaid
+graph LR
+    A([Visit /quiz]) --> B[Anonymous sign-in]
+    B --> C[Start Screen]
+    C --> D[Question 1]
+    D --> E[Question 2 ...]
+    E --> F[Final Question]
+    F --> G[Attempt saved to Supabase]
+    G --> H[grade-attempt Edge Function called]
+    H --> I{All correct?}
+    I -- Yes --> J[Badge written to DB]
+    J --> K[🎉 Badge Screen + confetti]
+    I -- No --> L[Try Again Screen]
+```
+
+### Flow 2: Timer Expiry
+
+```mermaid
+graph LR
+    A[Question displayed] --> B{Timer reaches 0}
+    B --> C[Timeout recorded in answers jsonb]
+    C --> D[Auto-advance to next question]
+    D --> E[selected_index saved as -1]
+```
+
+### Flow 3: Admin — Adding a Question
+
+```mermaid
+graph LR
+    A([Visit /admin]) --> B{Password correct?}
+    B -- No --> C[Blocked — re-prompt]
+    B -- Yes --> D[Admin dashboard]
+    D --> E[Fill question form]
+    E --> F[Set correct answer]
+    F --> G[Set display order]
+    G --> H[INSERT to questions table]
+    H --> I[Question appears in list]
+    I --> J{Edit or Delete?}
+    J -- Edit --> E
+    J -- Delete --> K[DELETE from questions table]
+```
+
+---
+
+## State Machine
+
+The quiz UI is driven by an explicit state machine inside `QuizContext`. This makes transitions predictable, debuggable, and prevents invalid states.
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+
+    IDLE --> LOADING : Begin clicked
+    LOADING --> READY : questions fetched
+    LOADING --> ERROR : fetch failed
+
+    READY --> QUESTION_ACTIVE : first question displayed
+
+    QUESTION_ACTIVE --> ANSWERED : user selects option
+    ANSWERED --> QUESTION_ACTIVE : Next clicked (not last)
+    ANSWERED --> SUBMITTING : Next clicked (last question)
+
+    QUESTION_ACTIVE --> TIMED_OUT : timer reaches 0
+    TIMED_OUT --> QUESTION_ACTIVE : auto-advance (not last)
+    TIMED_OUT --> SUBMITTING : auto-advance (last question)
+
+    SUBMITTING --> GRADING : attempt saved to DB
+    GRADING --> PASSED : Edge Function returns passed=true
+    GRADING --> FAILED : Edge Function returns passed=false
+
+    PASSED --> [*]
+    FAILED --> [*]
+
+    note right of QUESTION_ACTIVE
+        Back navigation BLOCKED
+        via React Router useBlocker
+    end note
+
+    note right of GRADING
+        service-role key used here
+        never in browser
+    end note
+```
+
+### QuizContext State Shape
+
+```typescript
+interface QuizState {
+  status: 'idle' | 'loading' | 'ready' | 'active' | 'submitting' | 'grading' | 'passed' | 'failed';
+  questions: Question[];
+  currentIndex: number;
+  answers: Answer[];
+  attemptId: string | null;
+  userId: string | null;
+  error: string | null;
+}
+```
+
+---
+
+## Security Model
+
+```mermaid
+graph TB
+    subgraph Browser["Browser (anon key only)"]
+        Client["Supabase JS Client<br/>VITE_SUPABASE_ANON_KEY"]
+        RLS["All queries subject to RLS<br/>user can only touch their own rows"]
+    end
+
+    subgraph EdgeFunction["Edge Function (server-side only)"]
+        ServiceKey["SUPABASE_SERVICE_ROLE_KEY<br/>bypasses RLS for grading"]
+        Grader["grade-attempt<br/>reads all questions + attempt<br/>writes badge"]
+    end
+
+    subgraph AdminRoute["Admin Panel"]
+        PasswordGate["VITE_ADMIN_PASSWORD<br/>env-variable check<br/>never sent to DB"]
+    end
+
+    Client -->|anon user reads questions| RLS
+    Client -->|user inserts own attempt| RLS
+    Client -->|POST attemptId| EdgeFunction
+    ServiceKey --> Grader
+    Grader -->|UPDATE attempts| ServiceKey
+    Grader -->|INSERT badges| ServiceKey
+```
+
+| Secret | Where it lives | Exposed to browser? |
+|---|---|---|
+| `VITE_SUPABASE_ANON_KEY` | `.env` → Vite bundle | ✅ Yes — safe by design + RLS |
+| `VITE_SUPABASE_URL` | `.env` → Vite bundle | ✅ Yes — public endpoint |
+| `VITE_ADMIN_PASSWORD` | `.env` → Vite bundle | ✅ Yes — demo only; use Auth in prod |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Edge Function secrets | ❌ Never — server-side only |
+
+---
+
+## Monorepo Structure
+
+```
+pnpm-workspace/
+├── artifacts/
+│   └── quiz-badge/                  # This application
+│       ├── src/
+│       │   ├── components/
+│       │   │   ├── QuestionCard.tsx  # Single question + radio options
+│       │   │   ├── Timer.tsx         # Per-question countdown
+│       │   │   ├── ProgressBar.tsx   # Step indicator
+│       │   │   ├── BadgeScreen.tsx   # Congratulations + confetti
+│       │   │   └── AdminQuestionForm.tsx
+│       │   ├── pages/
+│       │   │   ├── StartPage.tsx
+│       │   │   ├── QuizPage.tsx      # Framer Motion orchestrator
+│       │   │   ├── ResultPage.tsx
+│       │   │   ├── AdminPage.tsx
+│       │   │   └── NotFoundPage.tsx
+│       │   ├── context/
+│       │   │   └── QuizContext.tsx   # useReducer global state
+│       │   ├── hooks/
+│       │   │   ├── useQuestions.ts
+│       │   │   ├── useTimer.ts
+│       │   │   └── useQuizSession.ts
+│       │   ├── services/
+│       │   │   ├── supabase.ts       # Client init (anon key)
+│       │   │   ├── questionsService.ts
+│       │   │   ├── attemptsService.ts
+│       │   │   └── badgesService.ts
+│       │   ├── functions/
+│       │   │   └── grade-attempt/
+│       │   │       └── index.ts      # Deno Edge Function
+│       │   ├── types/
+│       │   │   └── quiz.types.ts     # All interfaces — zero `any`
+│       │   ├── styles/
+│       │   │   └── globals.css
+│       │   ├── App.tsx
+│       │   └── main.tsx
+│       ├── .env
+│       ├── vite.config.ts
+│       └── package.json
+├── packages/
+│   ├── api-spec/                     # OpenAPI spec + Orval codegen
+│   ├── api-server/                   # Express 5 + Drizzle ORM
+│   └── db/                          # Drizzle schema + migrations
+├── pnpm-workspace.yaml
+└── package.json
+```
+
+### Workspace Key Commands
+
+```bash
+# Type-check all packages
+pnpm run typecheck
+
+# Build all packages
+pnpm run build
+
+# Regenerate API hooks and Zod schemas from OpenAPI spec
+pnpm --filter @workspace/api-spec run codegen
+
+# Push DB schema changes (dev only)
+pnpm --filter @workspace/db run push
+
+# Run the API server locally
+pnpm --filter @workspace/api-server run dev
+
+# Run the quiz frontend locally
+pnpm --filter quiz-badge run dev
+```
+
+---
+
+## Key Design Decisions
+
+### Why Supabase Over a Custom Backend?
+
+| Concern | Custom Backend | Supabase |
+|---|---|---|
+| **Auth** | Build from scratch | Anonymous sign-in in 1 line |
+| **Security** | Write middleware | Row Level Security in SQL |
+| **File hosting** | S3 + CloudFront setup | Storage bucket, public URL |
+| **Server logic** | Deploy Node server | Edge Function, no infra |
+| **Local dev** | Docker Compose | `supabase start` |
+| **Time to ship** | Days | Hours |
+
+### Why Anonymous Auth (No Login Screen)?
+
+The assessment requires no login for quiz users. Supabase anonymous sign-in gives each browser session a real `auth.uid()` — enabling RLS policies and ownership tracking — without any UI. Users never know authentication happened.
+
+```typescript
+// main.tsx — called once on app boot, invisible to the user
+const { data } = await supabase.auth.signInAnonymously();
+// data.user.id is now a valid uuid used in all DB writes
+```
+
+### Why an Edge Function for Grading?
+
+Grading **must not** happen in the browser. If it did, a user could modify the answer payload before it reaches the database. The Edge Function:
+
+1. Receives only the `attemptId` — not the answers themselves
+2. Fetches both the attempt and the questions using the service-role key
+3. Performs the comparison server-side
+4. Writes the badge record directly
+
+The browser never sees the `correct_index` values.
+
+### Framer Motion — No Inline Variants
+
+All animation variants are defined as named constants outside the component. This makes them testable, reusable, and keeps JSX clean.
+
+```typescript
+// Defined outside the component — never inline objects
+const slideVariants = {
+  enter:  { x: '100%', opacity: 0 },
+  center: { x: 0,      opacity: 1 },
+  exit:   { x: '-100%', opacity: 0 },
+};
+
+// In JSX
+<motion.div variants={slideVariants} initial="enter" animate="center" exit="exit" />
+```
+
+### No Back Navigation — Two Layers
+
+| Layer | Mechanism |
+|---|---|
+| **React Router** | `useBlocker` prevents in-app back navigation |
+| **Browser history** | `window.history.pushState` override prevents OS back gesture |
+
+This is enforced in code, not just hidden UI.
+
+---
+
+## Local Development
+
+### Prerequisites
+
+- Node.js >= 18
+- pnpm >= 9
+- Supabase CLI (for Edge Functions)
+
+### Quick Start
+
+```bash
+# Clone and install
+git clone <your-repo-url>
+cd quiz-badge-system
+pnpm install
+
+# Set environment variables
+cp artifacts/quiz-badge/.env.example artifacts/quiz-badge/.env
+# Fill in VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_ADMIN_PASSWORD
+
+# Start the quiz frontend
+pnpm --filter quiz-badge run dev
+# → http://localhost:5173
+```
+
+### Environment Variables
+
+```bash
+# artifacts/quiz-badge/.env
+
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
+VITE_ADMIN_PASSWORD=your-admin-password
+```
+
+> The `SUPABASE_SERVICE_ROLE_KEY` is **never** in `.env`. Set it only in the Supabase dashboard under Settings → Edge Functions → Secrets.
+
+---
+
+## Deployment
+
+### 1. Supabase Project Setup
+
+1. Create a project at [supabase.com](https://supabase.com)
+2. Run the SQL schema above in **SQL Editor**
+3. Go to **Authentication → Providers → Anonymous** and enable it
+4. Go to **Storage → New Bucket**, create a bucket named `badges`, set it to **Public**
+5. Upload your `badge.png` to the `badges` bucket
+
+### 2. Deploy the Edge Function
+
+```bash
+# Install Supabase CLI
+npm install -g supabase
+
+# Login
+supabase login
+
+# Deploy the grading function
+supabase functions deploy grade-attempt --project-ref your-project-ref
+```
+
+Set secrets in **Supabase Dashboard → Settings → Edge Functions → Secrets**:
+
+| Secret name | Value |
+|---|---|
+| `SUPABASE_URL` | `https://your-project.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Found in Project Settings → API |
+
+### 3. Deploy the Frontend (Replit)
+
+The app is served from the pnpm monorepo root at route `/`. Replit auto-detects Vite and runs the dev server. For production, set the run command to:
+
+```bash
+pnpm --filter quiz-badge run build && pnpm --filter quiz-badge run preview
+```
+
+Set the environment variables in **Replit → Secrets**.
+
+---
+
+## Admin Panel
+
+### Adding Questions
+
+1. Navigate to `/admin`
+2. Enter the admin password (`VITE_ADMIN_PASSWORD`)
+3. Fill in the form:
+   - **Question text** — the question displayed to the user
+   - **Options A–D** — the four answer choices
+   - **Correct answer** — select which option is correct
+   - **Display order** — integer controlling question sequence (1, 2, 3...)
+4. Click **Save** — the question is immediately available to quiz users
+
+### Editing / Deleting Questions
+
+The admin dashboard lists all questions. Each row has **Edit** and **Delete** actions. Edits update the Supabase row in place; deletes remove the row permanently.
+
+> Questions are fetched in `order` ascending on the quiz side, so re-ordering is done by updating the `order` field.
+
+---
+
+## Metrics
+
+| Metric | Value |
+|---|---|
+| Frontend framework | React 18 + TypeScript 5.9 |
+| Build tool | Vite (< 2s cold build) |
+| Animation library | Framer Motion |
+| Backend | Supabase (PostgreSQL + Auth + Storage + Edge) |
+| Edge runtime | Deno (Supabase Edge Functions) |
+| State management | React Context + useReducer |
+| Code quality | SOLID principles, zero `any`, 150-line file limit |
+| Security | RLS on all tables, service-role key server-side only |
+| Monorepo tool | pnpm workspaces |
+
+---
+
+## Potential Enhancements
+
+| Enhancement | Approach |
+|---|---|
+| Multiple badge tiers | Add `score_threshold` to a `badge_types` table |
+| Leaderboard | Aggregate `attempts` with `passed=true`, rank by `time_taken` |
+| Question categories | Add `category` column, filter per quiz session |
+| Real admin auth | Replace password gate with Supabase email/password Auth |
+| Retry cooldown | Store `last_attempt_at` and enforce cooldown in Edge Function |
+| Analytics dashboard | Pipe `attempts` data to a Supabase view, display in admin |
+| Offline support | PWA + IndexedDB for question caching |
+
+---
+
+## License
+
+MIT — built for assessment purposes by Sabelo Mnikathi.
