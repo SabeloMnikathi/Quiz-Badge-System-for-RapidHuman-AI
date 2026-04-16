@@ -49,10 +49,6 @@ The Quiz Badge System is a **full-stack, serverless quiz application** that deli
 
 ---
 
-## Live Demo
-
-> Access the quiz at the root route `/` and the admin panel at `/admin`.
-
 **Demo credentials**
 - Admin password: set via `VITE_ADMIN_PASSWORD` environment variable
 
