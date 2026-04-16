@@ -1,6 +1,6 @@
 # Quiz Badge System
 
-> A Typeform-style quiz platform where users answer timed questions to unlock a digital badge — built on a modern serverless stack with a clean monorepo architecture.
+> A Typeform-style quiz platform where users answer timed questions to unlock a digital badge built on a modern serverless stack with a clean monorepo architecture.
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-007ACC?style=flat&logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)
@@ -14,7 +14,6 @@
 ## Table of Contents
 
 - [Overview](#overview)
-- [Live Demo](#live-demo)
 - [Architecture](#architecture)
 - [System Design](#system-design)
 - [Database Schema](#database-schema)
@@ -31,7 +30,7 @@
 
 ## Overview
 
-The Quiz Badge System is a **full-stack, serverless quiz application** that delivers a polished Typeform-style experience — one question at a time, animated transitions, per-question timers, and a badge awarded on completion. It is built as an artifact inside a pnpm monorepo, backed by Supabase for persistence, auth, file storage, and server-side grading logic.
+The Quiz Badge System is a **full-stack, serverless quiz application** that delivers a polished Typeform-style experience one question at a time, animated transitions, per-question timers, and a badge awarded on completion. It is built as an artifact inside a pnpm monorepo, backed by Supabase for persistence, auth, file storage, and server-side grading logic.
 
 ### Core Features
 
