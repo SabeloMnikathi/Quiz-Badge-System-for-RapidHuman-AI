@@ -35,7 +35,12 @@ export async function gradeAttempt(attemptId: string): Promise<GradeResult> {
     body: { attemptId },
   });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    const msg = error.message || error.toString() || "Edge Function call failed";
+    throw new Error(msg);
+  }
+  if (!data) throw new Error("No response from grading function");
+  if (data.error) throw new Error(data.error);
   return data as GradeResult;
 }
 

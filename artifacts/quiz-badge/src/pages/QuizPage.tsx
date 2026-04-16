@@ -32,16 +32,17 @@ export function QuizPage() {
 
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [direction, setDirection] = useState(1);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [timerFrozen, setTimerFrozen] = useState(false);
   const timerKey = useRef(0);
+  const startTime = useRef<number>(Date.now());
 
   const currentQuestion = questions[currentIndex];
   const isLast = currentIndex === questions.length - 1;
-  const startTime = useRef<number>(Date.now());
 
   const handleAdvance = useCallback(
     async (timeoutAnswer: boolean = false) => {
-      if (submitting) return;
+      if (submitting || timerFrozen) return;
 
       const timeTaken = Math.round((Date.now() - startTime.current) / 1000);
       const answer: Answer = {
@@ -50,15 +51,14 @@ export function QuizPage() {
         time_taken: timeTaken,
       };
 
-      dispatch({ type: "RECORD_ANSWER", payload: answer });
-      setSelectedIndex(null);
-      timerKey.current += 1;
-      startTime.current = Date.now();
-
       const updatedAnswers = [...answers, answer];
 
       if (isLast) {
+        setTimerFrozen(true);
         setSubmitting(true);
+        setSubmitError(null);
+        dispatch({ type: "RECORD_ANSWER", payload: answer });
+
         try {
           await updateAttemptAnswers(attemptId!, updatedAnswers);
           const result = await gradeAttempt(attemptId!);
@@ -66,16 +66,20 @@ export function QuizPage() {
           if (state.userId) saveSession(attemptId!, state.userId);
           setLocation("/result");
         } catch (err) {
-          console.error("Grading failed:", err);
-        } finally {
+          const msg = err instanceof Error ? err.message : "Submission failed. Please try again.";
+          setSubmitError(msg);
           setSubmitting(false);
+          setTimerFrozen(false);
         }
       } else {
-        setDirection(1);
+        dispatch({ type: "RECORD_ANSWER", payload: answer });
+        setSelectedIndex(null);
+        timerKey.current += 1;
+        startTime.current = Date.now();
         dispatch({ type: "NEXT_QUESTION" });
       }
     },
-    [currentQuestion, selectedIndex, answers, isLast, attemptId, dispatch, setLocation, submitting, state.userId, saveSession]
+    [currentQuestion, selectedIndex, answers, isLast, attemptId, dispatch, setLocation, submitting, timerFrozen, state.userId, saveSession]
   );
 
   const handleTimeout = useCallback(() => {
@@ -85,7 +89,7 @@ export function QuizPage() {
   const { timeLeft } = useTimer({
     duration: QUESTION_TIME,
     onTimeout: handleTimeout,
-    active: !submitting,
+    active: !submitting && !timerFrozen,
   });
 
   if (!currentQuestion) return null;
@@ -102,10 +106,9 @@ export function QuizPage() {
       </div>
 
       <div className="flex-1 flex items-center justify-center px-6 py-10 overflow-hidden">
-        <AnimatePresence mode="wait" custom={direction}>
+        <AnimatePresence mode="wait">
           <motion.div
             key={currentQuestion.id}
-            custom={direction}
             variants={slideVariants}
             initial="enter"
             animate="center"
@@ -124,7 +127,12 @@ export function QuizPage() {
       </div>
 
       <div className="px-6 pb-8">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl mx-auto space-y-3">
+          {submitError && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+              {submitError}
+            </div>
+          )}
           <button
             onClick={() => handleAdvance(false)}
             disabled={selectedIndex === null || submitting}
