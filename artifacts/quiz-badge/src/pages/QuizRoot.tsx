@@ -5,7 +5,6 @@
  */
 
 import { useEffect, useState } from "react";
-import { useLocation } from "wouter";
 import { useQuiz } from "../context/QuizContext";
 import { useQuestions } from "../hooks/useQuestions";
 import { useQuizSession } from "../hooks/useQuizSession";
@@ -20,21 +19,13 @@ type Screen = "start" | "quiz" | "result";
 export function QuizRoot() {
   const { state, dispatch } = useQuiz();
   const { questions, loading, error } = useQuestions();
-  const { getSession, saveSession } = useQuizSession();
-  const [, setLocation] = useLocation();
+  const { clearSession } = useQuizSession();
   const [screen, setScreen] = useState<Screen>("start");
   const [startError, setStartError] = useState<string | null>(null);
 
   useEffect(() => {
     dispatch({ type: "SET_QUESTIONS", payload: questions });
   }, [questions, dispatch]);
-
-  useEffect(() => {
-    const session = getSession();
-    if (session && !state.completed) {
-      setScreen("result");
-    }
-  }, []);
 
   useEffect(() => {
     if (state.completed) {
@@ -44,14 +35,17 @@ export function QuizRoot() {
 
   const handleBegin = async () => {
     setStartError(null);
+    clearSession();
+    dispatch({ type: "RESET" });
+
     try {
       const { data: authData, error: authError } = await supabase.auth.signInAnonymously();
       if (authError || !authData.user) throw new Error("Failed to sign in anonymously.");
 
       const userId = authData.user.id;
       const attempt = await createAttempt(userId);
-      saveSession(attempt.id, userId);
 
+      dispatch({ type: "SET_QUESTIONS", payload: questions });
       dispatch({ type: "START_QUIZ", payload: { attemptId: attempt.id, userId } });
       setScreen("quiz");
     } catch (err) {
@@ -60,7 +54,7 @@ export function QuizRoot() {
   };
 
   if (screen === "quiz" && state.started) return <QuizPage />;
-  if (screen === "result") return <ResultPage />;
+  if (screen === "result" && state.completed) return <ResultPage />;
 
   return (
     <div>
