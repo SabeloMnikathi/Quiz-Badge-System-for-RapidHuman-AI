@@ -4,20 +4,17 @@
  * WHY: Decouples pass/fail routing logic from the presentation of each outcome.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { useQuiz } from "../context/QuizContext";
 import { BadgeScreen } from "../components/BadgeScreen";
-import { fetchBadgeForAttempt } from "../services/badgesService";
-import type { Badge } from "../types/quiz.types";
 
 export function ResultPage() {
   const { state, dispatch } = useQuiz();
   const [, setLocation] = useLocation();
-  const [badge, setBadge] = useState<Badge | null>(null);
 
-  const { gradeResult, attemptId, completed } = state;
+  const { gradeResult, completed } = state;
 
   useEffect(() => {
     if (!completed) {
@@ -25,20 +22,20 @@ export function ResultPage() {
     }
   }, [completed, setLocation]);
 
-  useEffect(() => {
-    if (gradeResult?.passed && attemptId) {
-      fetchBadgeForAttempt(attemptId).then(setBadge).catch(console.error);
-    }
-  }, [gradeResult, attemptId]);
-
   if (!gradeResult) return null;
+
+  const handleRetry = () => {
+    sessionStorage.clear();
+    dispatch({ type: "RESET" });
+    setLocation("/");
+  };
 
   if (gradeResult.passed) {
     return (
       <BadgeScreen
-        badgeUrl={badge?.image_url ?? null}
         correctCount={gradeResult.correct_count}
         total={gradeResult.total}
+        onRetry={handleRetry}
       />
     );
   }
@@ -61,11 +58,7 @@ export function ResultPage() {
         <motion.button
           whileHover={{ scale: 1.03 }}
           whileTap={{ scale: 0.97 }}
-          onClick={() => {
-            sessionStorage.clear();
-            dispatch({ type: "RESET" });
-            setLocation("/");
-          }}
+          onClick={handleRetry}
           className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl text-base hover:bg-indigo-700 transition-colors"
         >
           Try Again
