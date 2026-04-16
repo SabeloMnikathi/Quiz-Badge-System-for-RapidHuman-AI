@@ -426,29 +426,34 @@ interface QuizState {
 
 ## Security Model
 
+The issue is a self-referencing edge — `Grader` points back to `ServiceKey` which is its own parent subgraph, and Mermaid can't render that. Let me fix the diagram:Here's the fixed diagram. The problem was the original Mermaid had `Grader -->|UPDATE| ServiceKey` — an arrow pointing *back into* the parent subgraph, which Mermaid rejects as invalid.
+
+The corrected logic: the grader reads from and writes to **Supabase DB** (shown as the loop on the right), not back to the service key node. The service key is what *enables* the grader to act, not something the grader sends data back to.
+
+To update the README, replace the broken Mermaid block in the Security Model section with this corrected version:
+
 ```mermaid
 graph TB
     subgraph Browser["Browser (anon key only)"]
-        Client["Supabase JS Client<br/>VITE_SUPABASE_ANON_KEY"]
-        RLS["All queries subject to RLS<br/>user can only touch their own rows"]
+        Client["Supabase JS Client · VITE_SUPABASE_ANON_KEY"]
+        RLS["All queries subject to RLS"]
     end
 
-    subgraph EdgeFunction["Edge Function (server-side only)"]
-        ServiceKey["SUPABASE_SERVICE_ROLE_KEY<br/>bypasses RLS for grading"]
-        Grader["grade-attempt<br/>reads all questions + attempt<br/>writes badge"]
+    subgraph EdgeFn["Edge Function (server-side only)"]
+        ServiceKey["SUPABASE_SERVICE_ROLE_KEY · bypasses RLS"]
+        Grader["grade-attempt · reads questions + attempt · writes badge"]
     end
 
     subgraph AdminRoute["Admin Panel"]
-        PasswordGate["VITE_ADMIN_PASSWORD<br/>env-variable check<br/>never sent to DB"]
+        PasswordGate["VITE_ADMIN_PASSWORD · env-variable check · never sent to DB"]
     end
 
-    Client -->|anon user reads questions| RLS
-    Client -->|user inserts own attempt| RLS
-    Client -->|POST attemptId| EdgeFunction
+    Client -->|anon user reads/writes via RLS| RLS
+    Client -->|POST attemptId| EdgeFn
     ServiceKey --> Grader
-    Grader -->|UPDATE attempts| ServiceKey
-    Grader -->|INSERT badges| ServiceKey
+    Grader -->|UPDATE attempts · INSERT badges| DB[(Supabase DB)]
 ```
+
 
 | Secret | Where it lives | Exposed to browser? |
 |---|---|---|
